@@ -1,0 +1,26 @@
+<clickhouse>
+    <path>/var/lib/clickhouse/</path>
+    <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+    <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
+    <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
+
+    <logger>
+        <level>debug</level>
+        <console>true</console>
+        <log>/var/log/clickhouse-server/clickhouse.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse.err.log</errorlog>
+    </logger>
+
+    <include_from_config_d>1</include_from_config_d>
+
+    <tcp_port>9000</tcp_port>
+    <http_port>8123</http_port>
+    <user_directories>
+        <users_xml>
+            <path>./users.xml</path>
+        </users_xml>
+        <local_directory>
+            <path>./users.d/</path>
+        </local_directory>
+    </user_directories>
+</clickhouse>

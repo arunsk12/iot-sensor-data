@@ -92,24 +92,29 @@ services:
       - ./flink_logs:/opt/flink/log # For logs
 
   superset:
-    image: apache/superset:latest 
-    hostname: superset
+    #image: apache/superset:latest 
+    build:
+      context: ./
+      dockerfile: ./docker/superset/Dockerfile-superset
+
     container_name: superset
+    hostname: superset
+    
     ports:
       - "8088:8088" # Superset Web UI
     environment:
-      SUPERSET_LOAD_EXAMPLES: "no"
+      SUPERSET_LOAD_EXAMPLES: "yes"
       SUPERSET_WEBSERVER_PORT: 8088
       FLASK_APP: superset
       SUPERSET_CONFIG_PATH: /app/superset_config.py
-      #SECRET_KEY: "THIS_IS_A_DEV_SECRET_KEY" # **CHANGE THIS FOR PRODUCTION**
     volumes:
+      - ./docker/superset/requirements-local.txt:/app/docker/requirements-local.txt
       - superset_home:/app/superset_home
       - ./superset_config.py:/app/superset_config.py
     depends_on:
       - clickhouse-server
-    #command: ["sleep", "infinity"]
-    command: ["/bin/sh", "-c", "sleep 10 && superset db upgrade && superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin || true && superset init && superset run -h 0.0.0.0 -p 8088 --with-threads --reload --debugger"]
+    
+    command: ["/bin/sh", "-c", "sleep 10 && pip install --upgrade pip && pip install --force-reinstall sqlalchemy clickhouse-connect clickhouse-sqlalchemy && superset db upgrade && superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin || true && superset init && superset run -h 0.0.0.0 -p 8088 --with-threads --reload --debugger"]
     networks:
       - default
 

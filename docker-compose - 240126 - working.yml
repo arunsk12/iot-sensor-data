@@ -1,0 +1,165 @@
+version: '3.8'
+
+services:
+  zookeeper-1:
+    image: confluentinc/cp-zookeeper:7.4.4
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - 22181:2181
+
+  kafka-1:
+    image: confluentinc/cp-kafka:7.4.4
+    depends_on:
+      - zookeeper-1
+    ports:
+      - 29092:29092 # Port for host access to Kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-1:2181
+      # CORRECTED KAFKA ADVERTISED LISTENERS FOR INTERNAL (kafka-1:9092) AND EXTERNAL (localhost:29092) ACCESS
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  clickhouse-server:
+    image: clickhouse/clickhouse-server:latest
+    hostname: clickhouse-server
+    container_name: clickhouse-server
+    ports:
+      - "8123:8123" # HTTP interface
+      - "9000:9000" # Native interface
+      - "9440:9440" # HTTPS interface
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse_logs:/var/log/clickhouse-server
+      - ./conf/clickhouse-server/config.xml:/etc/clickhouse-server/config.xml   
+      - ./conf/clickhouse-server/config.d/:/etc/clickhouse-server/config.d
+      - ./conf/clickhouse-server/users.xml:/etc/clickhouse-server/users.xml     
+      - ./conf/clickhouse-server/users.d/:/etc/clickhouse-server/users.d
+      - ./clickhouse-init:/docker-entrypoint-initdb.d
+    environment:
+      CLICKHOUSE_DEFAULT_LISTEN_HOST: 0.0.0.0
+      CLICKHOUSE_DB: iot_data
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "-q", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - default
+
+  jobmanager:
+    image: apache/flink:1.17.1
+    hostname: jobmanager
+    container_name: jobmanager
+    ports:
+      - "8081:8081" # Flink Web UI
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES_jobmanager_rpc_address: jobmanager
+    depends_on:
+      - kafka-1
+      - clickhouse-server
+    networks:
+      - default
+
+  taskmanager:
+    image: apache/flink:1.17.1
+    hostname: taskmanager
+    container_name: taskmanager
+    #command: ["sleep", "infinity"]
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES_jobmanager_rpc_address: jobmanager
+      FLINK_PROPERTIES_taskmanager_numberOfTaskSlots: 2 # Adjust based on your available CPU/memory
+      FLINK_ENV_JAVA_OPTS: "" # Keep this line
+      JOB_MANAGER_RPC_ADDRESS: jobmanager 
+    depends_on:
+      - jobmanager
+      - clickhouse-server
+    networks:
+      - default
+    volumes:
+      - ./flink_checkpoints:/opt/flink/checkpoints # For job checkpoints
+      - ./flink_logs:/opt/flink/log # For logs
+
+  superset:
+    #image: apache/superset:latest 
+    build:
+      context: ./
+      dockerfile: ./docker/superset/Dockerfile-superset
+
+    container_name: superset
+    hostname: superset
+    
+    ports:
+      - "8088:8088" # Superset Web UI
+    environment:
+      SUPERSET_LOAD_EXAMPLES: "yes"
+      SUPERSET_WEBSERVER_PORT: 8088
+      FLASK_APP: superset
+      SUPERSET_CONFIG_PATH: /app/superset_config.py
+    volumes:
+      - ./docker/superset/requirements-local.txt:/app/docker/requirements-local.txt
+      - superset_home:/app/superset_home
+      - ./superset_config.py:/app/superset_config.py
+    depends_on:
+      - clickhouse-server
+    
+    command: ["/bin/sh", "-c", "sleep 10 && pip install --upgrade pip && pip install --force-reinstall sqlalchemy clickhouse-connect clickhouse-sqlalchemy && superset db upgrade && superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin || true && superset init && superset run -h 0.0.0.0 -p 8088 --with-threads --reload --debugger"]
+    networks:
+      - default
+
+  data-simulator:
+    build:
+      context: ./data-simulator # Build from the data-simulator directory
+      dockerfile: Dockerfile    # Use the Dockerfile in that directory
+    container_name: data-simulator
+    depends_on:
+      - kafka-1 # Simulator sends data to Kafka
+    networks:
+      - default
+    volumes:
+      - ./data-simulator:/app
+    command: python /app/simulator_fix.py
+
+    
+
+# NEW SERVICE: Grafana
+  grafana:
+    image: grafana/grafana:latest 
+    hostname: grafana
+    container_name: grafana
+    ports:
+      - "3000:3000" # Expose Grafana UI on port 3000
+    depends_on:
+      - clickhouse-server
+          #condition: service_healthy # Ensure ClickHouse is ready before Grafana starts
+    volumes:
+      - grafana_data:/var/lib/grafana # Persistent storage for Grafana data
+    environment:
+      GF_SECURITY_ADMIN_USER: admin # Default admin username
+      GF_SECURITY_ADMIN_PASSWORD: admin # Default admin password (CHANGE THIS IN PRODUCTION)
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  clickhouse_data:
+  clickhouse_logs:
+  superset_home:
+  grafana_data: 
+
+networks:
+  default:
+    driver: bridge

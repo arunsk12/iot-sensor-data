@@ -1,0 +1,29 @@
+<clickhouse>
+    <profiles>
+        <default>
+            <allow_ddl>1</allow_ddl>
+        </default>
+    </profiles>
+
+    <users>
+        <default>
+            <profile>default</profile>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <no_password>1</no_password>
+            <quota>default</quota>
+            <access_management>0</access_management>
+        </default>
+
+        <iot_user>
+            <profile>default</profile>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <password><![CDATA[iot_password]]></password>
+            <quota>default</quota>
+            <access_management>0</access_management>
+        </iot_user>
+    </users>
+</clickhouse>
